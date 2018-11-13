@@ -1,0 +1,422 @@
+# cat /opt/kaspersky/klnagent64/lib/bin/setup/appdata.pm - orig
+# ===============================================
+# (C) 2017 AO Kaspersky Lab. All Rights Reserved.
+# ===============================================
+package appdata;
+use klinstall;
+
+my $APPID = 1103;
+
+# server's dns name
+my $ASK_KLNAGENT_SERVER = 
+
+# 14000
+my $ASK_KLNAGENT_PORT = 
+
+# 13000
+my $ASK_KLNAGENT_SSLPORT = 
+
+# Y/N
+my $ASK_KLNAGENT_USESSL = 
+
+# 2
+my $ASK_KLNAGENT_GW_MODE = 2
+
+my $ASK_KLNAGENT_GW_ADDRESS = <<EOT;
+
+Please enter connection gateway address
+EOT
+
+sub get_application_info
+{
+    my %AI;
+
+    seek (DATA, 0, 0);
+    foreach (<DATA>)
+    {
+        chomp;
+        m/^f\s+(.*)$/ and $AI{"FILES"} .= "$1\n"
+            or m/^d\s+(.*)$/ and $AI{"DIRS"} .= "$1\n"
+                or m/^(\w+)=(.*)$/ and $AI{$1} = $2;
+    }
+
+    klinstall::fatal ("Corrupted installation!")
+        if !$AI{"INSTROOT"};
+
+    my $PRODUCT = 'klnagent';
+
+    $AI{"ID"} = $APPID;
+    $AI{"PRODUCT"} = $PRODUCT;
+    $AI{"NAME"} = "Kaspersky Network Agent";
+    $AI{"DEFAULT_CONFIG"} = "$AI{CFGPATH}";
+    $AI{"REQUIRE_AV_BASES"} = "0";
+    $AI{"REQUIRE_SETUP_KEEPUP2DATE"} = "0";
+    $AI{"REQUIRE_LICENSES"} = "0";
+ $AI{"ARCH"} = "AMD64";
+
+
+    $AI{"KLNAGENT_BIN"} = "$AI{INSTROOT}/sbin/klnagent";
+
+    $AI{"COMP_SETUP_SCRIPT"} = "$AI{LIBEXEC}/setup/klnagent_setup.pl";
+    $AI{"COMP_POSTINSTALL_SCRIPT"} = "$AI{LIBEXEC}/setup/postinstall.pl";
+
+    return %AI;
+}
+
+sub app_check_os_ver { return 0; }
+sub app_check_linux_distro { return 0; }
+sub app_get_conflict_ids { return; }
+sub app_check_required_components { return; }
+
+sub app_check_optional_components
+{
+}
+
+{
+    sub is_using_systemd_
+    {
+        my $init_process_name = `ps -o comm= -p 1`;
+        chomp $init_process_name;
+        return $init_process_name eq 'systemd';
+    }
+
+    my $is_systemd = is_using_systemd_();
+    sub is_using_systemd
+    {
+        return $is_systemd;
+    }
+}
+
+sub app_control_systemd
+{
+    my $control_action = shift;
+    my %AI = appdata::get_application_info();
+    my $service = "$AI{'PKGPRODUCT'}";
+    my $cmd = "systemctl $control_action $service";
+
+    return klinstall::exec_cmd ($cmd);
+}
+
+sub app_control_sysv
+{
+    my $control_action = shift;
+    my %AI = appdata::get_application_info();
+    my $cmd = "$AI{'RCCMD'} $control_action";
+
+    return klinstall::exec_cmd ($cmd);
+}
+
+sub app_control
+{
+    my $control_action = shift;
+    if (is_using_systemd()) {
+        if ($control_action eq "start") {
+            app_control_systemd "stop";
+        }
+        return app_control_systemd $control_action;
+    }
+
+    return app_control_sysv $control_action;
+}
+
+sub app_start
+{
+    my %AI = appdata::get_application_info();
+
+    print "Starting $AI{PRODUCT}: ";
+    my ($rc, $outmsg) = app_control "start";
+    print "$outmsg\n";
+
+    return $rc == 0;
+}
+
+sub app_stop
+{
+    my %AI = appdata::get_application_info();
+
+    print "Stopping $AI{PRODUCT}: ";
+    my ($rc, $outmsg) = app_control "stop";
+    print "$outmsg\n";
+
+    return $rc == 0;
+}
+
+sub app_is_running
+{
+    if (is_using_systemd()) {
+        my ($rc, $outmsg) = app_control "show -p SubState";
+        return (($rc >> 8) == 0 and index($outmsg, "running") != -1)
+    }
+
+    my ($rc, $outmsg) = app_control "status";
+    return ($rc >>8) == 0;
+}
+
+sub app_checks_preuninstall { return; }
+
+sub app_is_license_needed { return 0; }
+
+sub install_licenses { return; }
+
+sub app_modify_config_file {}
+
+sub setup_http_proxy {}
+
+sub update_AV_database { return 1; }
+
+sub _is_valid_ip_address
+{
+    my $value = shift;
+
+    return 1 if $value =~ /^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/[\w\s].*)*$/;
+
+    return 0;
+}
+
+sub _is_valid_host_name
+{
+    my $value = shift;
+
+    return 1 if $value =~ /^(([a-zA-Z]|[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])(\/[\w\s].*)*$/;
+
+    return 0;
+}
+
+sub validate_hostname
+{
+    my $hostname = shift;
+    if (_is_valid_host_name($hostname) || _is_valid_ip_address($hostname)) {
+   return 1;
+    }
+
+    return 0;
+}
+
+sub ask_klnagent_vars
+{
+    my $klnagent = ();
+
+    my $value;
+
+    while (1) {
+        $value = klinstall::ask_question ('KLNAGENT_SERVER', "", $ASK_KLNAGENT_SERVER);
+   $validate_res = validate_hostname ($value);
+   last if $validate_res == 1;
+
+        klinstall::output("Administration Server address is required and must be valid.\n");
+        klinstall::remove_autoanswer('KLNAGENT_SERVER');
+    }
+ $klnagent->{'SERVER'} = $value;
+
+    while (1) {
+        $value = klinstall::ask_question('KLNAGENT_PORT', "14000", $ASK_KLNAGENT_PORT);
+        last if $value =~ /^\d+$/;
+
+        klinstall::output("Entered port number is invalid.\n");
+        klinstall::remove_autoanswer('KLNAGENT_PORT');
+    }
+    $klnagent->{'PORT'} = $value;
+
+    while (1) {
+        $value = klinstall::ask_question ('KLNAGENT_SSLPORT', "13000", $ASK_KLNAGENT_SSLPORT);
+        last if $value =~ /^\d+$/;
+
+        klinstall::output("Entered port number is invalid.\n");
+        klinstall::remove_autoanswer('KLNAGENT_SSLPORT');
+    }
+    $klnagent->{'SSLPORT'} = $value;
+
+    while (1) {
+        $value = klinstall::ask_question('KLNAGENT_USESSL', "Y", $ASK_KLNAGENT_USESSL);
+        last if $value =~ /^(y(es)?|n(o)?|1|0)$/i;
+
+        klinstall::output("Please answer either 'Y' or 'N'.\n");
+        klinstall::remove_autoanswer('KLNAGENT_USESSL');
+    }
+    $klnagent->{'USESSL'} = ($value =~ /^(y(es)?|1)$/i) ? '1' : '0';
+
+    while (1) {
+        $value = klinstall::ask_question('KLNAGENT_GW_MODE', "1", $ASK_KLNAGENT_GW_MODE);
+        last if $value =~ /^[1-4]$/;
+
+        klinstall::output("Please answer either '1', '2', '3' or '4'.\n");
+        klinstall::remove_autoanswer('KLNAGENT_GW_MODE');
+    }
+
+    $klnagent->{'GW_MODE'} = $value;
+
+    if ($value eq '3') {
+        while (1) {
+            $value = klinstall::ask_question('KLNAGENT_GW_ADDRESS', "", $ASK_KLNAGENT_GW_ADDRESS);
+            last if $value ne '';
+
+            klinstall::output("Entered gateway address is invalid.\n");
+            klinstall::remove_autoanswer('KLNAGENT_GW_ADDRESS');
+        }
+
+        $klnagent->{'GW_ADDRESS'} = $value;
+    }
+
+    return $klnagent;
+}
+
+sub klnagent_exec_cmd_safe
+{
+    my @args = @_;
+    my ($msg, $cmd);
+
+    foreach (@args)
+    {
+   s/([\&;\`'\\\|"*?~<>^\(\)\[\]\{\}\$\n\r])/\\$1/g;
+
+   if ($_  =~ /\s/ )
+   {
+    $_ = qq{"$_"};
+   }
+    }
+
+    my $tmpfile = "/tmp/klinstallexec.$$.tmp";
+    my $cmdline = join (" ", @args) . " 1>$tmpfile 2>&1";
+
+    my $retcode = system ($cmdline);
+    $retcode = ($retcode == -1 ? "undef" : $?);
+
+    if ( open FILE, "<$tmpfile" )
+    {
+        $msg = join ("", <FILE>);
+        close FILE;
+
+        unlink $tmpfile;
+    }
+
+    return ($retcode, $msg);
+}
+
+sub klnagent_register
+{
+    my $vars = shift;
+    my %AI = appdata::get_application_info();
+
+    klnagent_unregister();
+
+    my @opts;
+    push @opts, $AI{"KLNAGENT_BIN"};
+    push @opts, '-regserver';
+    push @opts, '-pkgver',      $AI{'VER'};
+    push @opts, '-unattended',  $ENV{"KLAUTOANSWERS"} if defined($ENV{"KLAUTOANSWERS"});
+    push @opts, '-server',      $vars->{'SERVER'} if defined ($vars->{'SERVER'});
+    push @opts, '-port',        $vars->{'PORT'} if defined ($vars->{'PORT'});
+    push @opts, '-sslport',     $vars->{'SSLPORT'} if defined ($vars->{'SSLPORT'});
+    push @opts, '-usessl',      $vars->{'USESSL'} if defined ($vars->{'USESSL'});
+    push @opts, '-groupname',   $vars->{'GROUPNAME'} if defined($vars->{'GROUPNAME'});
+    push @opts, '-gwmode',      $vars->{'GW_MODE'} if defined($vars->{'GW_MODE'});
+    push @opts, '-gwaddress',   $vars->{'GW_ADDRESS'} if defined($vars->{'GW_ADDRESS'});
+
+    my ($rc, $msg) = klnagent_exec_cmd_safe(@opts);
+}
+
+sub klnagent_register_auto
+{
+    my %AI = appdata::get_application_info();
+
+    klnagent_unregister();
+
+    my @opts;
+    push @opts, $AI{"KLNAGENT_BIN"};
+    push @opts, '-regserver';
+    push @opts, '-pkgver',      $AI{'VER'};
+    push @opts, '-unattended',  $ENV{"KLAUTOANSWERS"} if defined($ENV{"KLAUTOANSWERS"});
+
+    my ($rc, $msg) = klnagent_exec_cmd_safe(@opts);
+}
+
+sub klnagent_upgrade
+{
+    my %AI = appdata::get_application_info();
+    my ($rc, $msg) = klnagent_exec_cmd_safe ($AI{"KLNAGENT_BIN"}, '-upgrade', '-pkgver', $AI{'VER'});
+}
+
+sub klnagent_unregister
+{
+    my %AI = appdata::get_application_info();
+    my ($rc, $msg) = klnagent_exec_cmd_safe ($AI{"KLNAGENT_BIN"}, '-unregserver');
+}
+
+sub app_register
+{
+    my $upgrade = shift;
+    my $autoinstall = shift || defined($ENV{"KLAUTOANSWERS"});
+
+    if ($upgrade) {
+        app_stop() if app_is_running();
+
+        klinstall::output("Execute automatic upgrade\n");
+        klnagent_upgrade();
+
+    } elsif ( $autoinstall ) {
+        klinstall::output("Execute automatic installation\n");
+        klnagent_register_auto();
+
+    } else {
+        my $klnagent_vars = ask_klnagent_vars();
+
+        if ($klnagent_vars) {
+            klnagent_register($klnagent_vars);
+        }
+    }
+
+    if ($upgrade) {
+        app_start();
+    } else {
+        app_start() if not app_is_running();
+    }
+}
+
+sub app_unregister
+{
+    my $upgrade = shift;
+
+    my %AI = appdata::get_application_info();
+
+    if ( (not $upgrade) and app_is_running() ) {
+        if (!app_stop()) {
+            klinstall::fatal("Can't stop application!");
+        }
+    }
+
+    klnagent_unregister() if not $upgrade;
+}
+
+sub is_folder_not_empty
+{
+    my $dirname = shift;
+    my $result = 0;
+
+    if ( opendir(DR, $dirname) )
+    {
+        @drList = readdir(DR);
+
+        closedir(DR);
+
+        if( grep($_ ne "." && $_ ne "..", @drList) )
+        {
+            $result = 1;
+        }
+    }
+
+    return $result;
+}
+
+1;
+__DATA__
+INSTROOT=/opt/kaspersky/klnagent64
+VER=10.5.0.42
+CFGPATH=/etc/opt/kaspersky/klnagent
+DBROOT=/var/opt/kaspersky
+LIBSPATH=/opt/kaspersky/klnagent64/lib
+LIBEXEC=/opt/kaspersky/klnagent64/lib/bin
+SHAREPATH=/opt/kaspersky/klnagent64/share
+PKG_OS_VER=
+PKG_OS_NAME=
+RCCMD=/etc/init.d/klnagent64
+PKGPRODUCT=klnagent64
