@@ -1,1 +1,1 @@
-# simple bash script to install kaspersky av
+# simple script to install kaspersky av
